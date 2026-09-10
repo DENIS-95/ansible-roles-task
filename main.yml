@@ -1,50 +1,12 @@
 ---
-- name: Update apt cache
-  ansible.builtin.apt:
-    update_cache: true
-    cache_valid_time: 3600
+- name: Configure database server
+  hosts: db
+  become: true
+  roles:
+    - db
 
-- name: Install PostgreSQL and dependencies
-  ansible.builtin.apt:
-    name:
-      - postgresql
-      - postgresql-contrib
-      - python3-psycopg2
-    state: present
-
-- name: Ensure PostgreSQL service is running and enabled
-  ansible.builtin.service:
-    name: postgresql
-    state: started
-    enabled: true
-
-- name: Configure PostgreSQL to listen on all addresses
-  ansible.builtin.lineinfile:
-    path: /etc/postgresql/14/main/postgresql.conf
-    regexp: "^#?listen_addresses = .*"
-    line: "listen_addresses = '*'"
-  notify: Restart PostgreSQL
-
-- name: Configure pg_hba.conf to allow remote connections
-  ansible.builtin.lineinfile:
-    path: /etc/postgresql/14/main/pg_hba.conf
-    line: "host    all             all             0.0.0.0/0               md5"
-    insertafter: EOF
-  notify: Restart PostgreSQL
-
-- name: Create application database
-  community.postgresql.postgresql_db:
-    name: "{{ db_name }}"
-    state: present
-  become_user: postgres
-
-- name: Create database user with permissions
-  community.postgresql.postgresql_user:
-    name: "{{ db_user }}"
-    password: "{{ db_pass }}"
-    db: "{{ db_name }}"
-    priv: "ALL"
-    role_attr_flags: "LOGIN"
-    state: present
-  become_user: postgres
-
+- name: Configure web server
+  hosts: server
+  become: true
+  roles:
+    - server
