@@ -1,0 +1,154 @@
+---
+- name: Update apt cache
+  ansible.builtin.apt:
+    update_cache: true
+    cache_valid_time: 3600
+
+- name: Install Apache, PHP, Git, Node.js and dependencies
+  ansible.builtin.apt:
+    name:
+      - apache2
+      - php
+      - php-cli
+      - libapache2-mod-php
+      - php-pgsql
+      - php-mbstring
+      - php-xml
+      - php-curl
+      - php-zip
+      - php-bcmath
+      - git
+      - unzip
+      - curl
+      - nodejs
+      - npm
+      - composer
+    state: present
+
+- name: Enable Apache rewrite module
+  ansible.builtin.command:
+    cmd: a2enmod rewrite
+  register: rewrite_result
+  changed_when: "'Enabling rewrite' in rewrite_result.stdout"
+  notify: Restart Apache
+
+- name: Start and enable Apache
+  ansible.builtin.service:
+    name: apache2
+    state: started
+    enabled: true
+
+- name: Create application directory
+  ansible.builtin.file:
+    path: /var/www/app
+    state: directory
+    mode: "0755"
+
+- name: Clone application repository
+  ansible.builtin.git:
+    repo: https://github.com/Practical-DevOps/app-for-devops.git
+    dest: /var/www/app
+    version: main
+    force: true
+
+- name: Install PHP dependencies with Composer
+  ansible.builtin.command:
+    cmd: composer install --no-interaction --prefer-dist
+    chdir: /var/www/app
+  environment:
+    COMPOSER_ALLOW_SUPERUSER: "1"
+
+- name: Create Laravel .env file
+  ansible.builtin.copy:
+    src: /var/www/app/.env.example
+    dest: /var/www/app/.env
+    remote_src: true
+
+- name: Configure Laravel database connection for PostgreSQL
+  ansible.builtin.lineinfile:
+    path: /var/www/app/.env
+    regexp: "^{{ item.key }}="
+    line: "{{ item.key }}={{ item.value }}"
+  loop:
+    - { key: "DB_CONNECTION", value: "pgsql" }
+    - { key: "DB_HOST", value: "{{ db_host }}" }
+    - { key: "DB_PORT", value: "5432" }
+    - { key: "DB_DATABASE", value: "{{ db_name }}" }
+    - { key: "DB_USERNAME", value: "{{ db_user }}" }
+    - { key: "DB_PASSWORD", value: "{{ db_pass }}" }
+
+- name: Generate Laravel application key
+  ansible.builtin.command:
+    cmd: php artisan key:generate --force
+    chdir: /var/www/app
+
+- name: Wait for PostgreSQL
+  ansible.builtin.wait_for:
+    host: "{{ db_host }}"
+    port: 5432
+    timeout: 60
+
+- name: Run Laravel database migrations
+  ansible.builtin.command:
+    cmd: php artisan migrate --force
+    chdir: /var/www/app
+
+- name: Install Node.js dependencies
+  ansible.builtin.command:
+    cmd: npm install
+    chdir: /var/www/app
+
+- name: Build frontend assets
+  ansible.builtin.command:
+    cmd: npm run build
+    chdir: /var/www/app
+
+- name: Set ownership for all application files
+  ansible.builtin.file:
+    path: /var/www/app
+    owner: www-data
+    group: www-data
+    recurse: true
+
+- name: Set permissions for storage and cache directories
+  ansible.builtin.file:
+    path: "{{ item }}"
+    mode: "0775"
+    recurse: true
+  loop:
+    - /var/www/app/storage
+    - /var/www/app/bootstrap/cache
+
+- name: Configure Apache virtual host
+  ansible.builtin.copy:
+    dest: /etc/apache2/sites-available/laravel.conf
+    owner: root
+    group: root
+    mode: "0644"
+    content: |
+      <VirtualHost *:80>
+          ServerName _default_
+          DocumentRoot /var/www/app/public
+          <Directory /var/www/app/public>
+              AllowOverride All
+              Require all granted
+              Options FollowSymLinks
+          </Directory>
+          ErrorLog ${APACHE_LOG_DIR}/laravel_error.log
+          CustomLog ${APACHE_LOG_DIR}/laravel_access.log combined
+      </VirtualHost>
+  notify: Restart Apache
+
+- name: Disable default Apache site
+  ansible.builtin.command:
+    cmd: a2dissite 000-default.conf
+  register: disable_default
+  changed_when: "'Site 000-default disabled' in disable_default.stdout"
+  notify: Restart Apache
+
+- name: Enable Laravel Apache site
+  ansible.builtin.command:
+    cmd: a2ensite laravel.conf
+  register: enable_laravel
+  changed_when: "'Site laravel already enabled' not in enable_laravel.stdout"
+  notify: Restart Apache
