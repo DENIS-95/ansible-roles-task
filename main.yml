@@ -2,11 +2,15 @@
 - name: Configure database server
   hosts: db
   become: true
+  vars:
+    ansible_python_interpreter: auto_silent
   roles:
     - db
 
 - name: Configure web server
   hosts: server
   become: true
+  vars:
+    ansible_python_interpreter: auto_silent
   roles:
     - server
