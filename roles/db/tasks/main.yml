@@ -46,18 +46,21 @@
     insertafter: EOF
   notify: Restart PostgreSQL
 
-- name: Create application database
-  community.postgresql.postgresql_db:
-    name: "{{ db_name }}"
-    state: present
-  become_user: postgres
-
-- name: Create database user with permissions
+- name: Create database user
   community.postgresql.postgresql_user:
     name: "{{ db_user }}"
     password: "{{ db_pass }}"
-    db: "{{ db_name }}"
-    priv: "ALL"
     role_attr_flags: "LOGIN"
     state: present
   become_user: postgres
+  vars:
+    ansible_remote_tmp: /tmp 
+
+- name: Create application database and set owner
+  community.postgresql.postgresql_db:
+    name: "{{ db_name }}"
+    owner: "{{ db_user }}"
+    state: present
+  become_user: postgres
+  vars:
+    ansible_remote_tmp: /tmp 
